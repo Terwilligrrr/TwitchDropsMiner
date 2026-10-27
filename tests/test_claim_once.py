@@ -12,11 +12,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-# the login patch at the bottom of patches.py would import the tkinter GUI
-os.environ["WEBUI_TWITCH_LOGIN"] = "device-code"
-
-import webui.patches  # noqa: E402,F401  (side effects: patches the drop classes)
-import webui.patches_claims as claims
+import webui.patches_claims as claims  # importing it patches the drop classes
 from inventory import TimedDrop
 
 
