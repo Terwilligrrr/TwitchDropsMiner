@@ -44,10 +44,6 @@ jobs:
     name: Merge fireph webui into allen-build
     runs-on: ubuntu-latest
     steps:
-      # Keeps GitHub from switching the schedule off (see the note at the top).
-      - name: Keep this schedule alive
-        run: gh api --method PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/sync-upstream.yml/enable"
-
       - name: Checkout target branch
         uses: actions/checkout@v7
         with:
@@ -95,6 +91,12 @@ jobs:
       - name: Start a rebuild
         if: steps.merge.outputs.behind != '0' && env.TARGET_BRANCH == 'allen-build'
         run: gh workflow run allen-build.yml --ref refs/heads/allen-build
+
+      # Keeps GitHub from switching the schedule off (see the note at the top). Runs even after
+      # a failed sync; if this call itself fails the run goes red and opens the issue below.
+      - name: Keep this schedule alive
+        if: always()
+        run: gh api --method PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/sync-upstream.yml/enable"
 
       - name: Report failure as a GitHub issue
         if: failure()
