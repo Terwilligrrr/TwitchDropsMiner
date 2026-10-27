@@ -9,7 +9,6 @@ every inventory fetch (each hour, each channel switch, each restart).
 from __future__ import annotations
 
 import asyncio
-import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
