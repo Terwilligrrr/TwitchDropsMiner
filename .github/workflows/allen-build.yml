@@ -124,6 +124,12 @@ jobs:
           GH_TOKEN: ${{github.token}}
           SHA: ${{github.sha}}
         run: |
+          find artifacts -type f
+          mapfile -t files < <(find artifacts -type f -name '*.zip')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::No zip found in the downloaded artifacts"
+            exit 1
+          fi
           if gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release delete "${RELEASE_TAG}" --cleanup-tag --yes --repo "${GITHUB_REPOSITORY}"
           fi
@@ -134,7 +140,7 @@ jobs:
           - Last build date: \`$(date --rfc-3339=seconds)\`
           - Reference commit: ${SHA}
           NOTES
-          gh release create "${RELEASE_TAG}" artifacts/*/* \
+          gh release create "${RELEASE_TAG}" "${files[@]}" \
             --repo "${GITHUB_REPOSITORY}" \
             --target "${SHA}" \
             --title "allen-build" \
