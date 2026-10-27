@@ -42,13 +42,13 @@ jobs:
       - name: Checkout target branch
         uses: actions/checkout@v7
         with:
-          ref: ${{env.TARGET_BRANCH}}
+          ref: refs/heads/${{env.TARGET_BRANCH}}
           fetch-depth: 0
 
       - name: Fetch source branch
         run: |
           git remote add source "https://github.com/${SOURCE_REPO}.git"
-          git fetch source "${SOURCE_BRANCH}"
+          git fetch source "refs/heads/${SOURCE_BRANCH}:refs/remotes/source/${SOURCE_BRANCH}"
 
       - name: Merge
         id: merge
@@ -80,12 +80,12 @@ jobs:
 
       - name: Push
         if: steps.merge.outputs.behind != '0'
-        run: git push origin "HEAD:${TARGET_BRANCH}"
+        run: git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
 
       # Pushes made with the workflow token do not start other workflows, so ask for the build directly.
       - name: Start a rebuild
         if: steps.merge.outputs.behind != '0' && env.TARGET_BRANCH == 'allen-build'
-        run: gh workflow run allen-build.yml --ref allen-build
+        run: gh workflow run allen-build.yml --ref refs/heads/allen-build
 
       - name: Report failure as a GitHub issue
         if: failure()
