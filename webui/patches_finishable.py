@@ -41,7 +41,7 @@ def _can_finish(self, margin: timedelta = FINISH_MARGIN) -> bool:
     """
     now = datetime.now(timezone.utc)
     return any(
-        timedelta(minutes=drop.remaining_minutes) <= (end - now) + margin
+        timedelta(minutes=drop.remaining_minutes) <= (end - max(now, drop.starts_at)) + margin
         for drop, end in self._remaining_windows()
     )
 
@@ -62,10 +62,12 @@ _inventory.DropsCampaign.can_finish = _can_finish  # type: ignore[attr-defined]
 _inventory.DropsCampaign.finish_triggers = _finish_triggers  # type: ignore[attr-defined]
 
 
-def _prefer_finishable_games(self) -> None:
-    # Every games pick (GAMES_UPDATE) and every maintenance trigger ends in a
-    # CHANNELS_CLEANUP, so pruning here covers both the initial pick and the
-    # re-pick when a drop stops being completable. Order is kept as chosen by core.
+def _prefer_finishable_games(self) -> bool:
+    """
+    Drop unfinishable games from wanted_games when finishable ones exist.
+    Returns False when games were dropped earlier and none of the kept ones can
+    finish anymore, meaning the games have to be picked again from scratch.
+    """
     next_hour = datetime.now(timezone.utc) + timedelta(hours=1)
     finishable = {
         campaign.game
@@ -74,12 +76,20 @@ def _prefer_finishable_games(self) -> None:
     }
     kept = [game for game in self.wanted_games if game in finishable]
     if kept:
+        self._finishable_dropped_games = len(kept) < len(self.wanted_games)
         self.wanted_games[:] = kept
+        return True
+    dropped_before = getattr(self, "_finishable_dropped_games", False)
+    self._finishable_dropped_games = False
+    return not dropped_before or self._state is State.GAMES_UPDATE
 
 
 def _change_state(self, state: State) -> None:
-    if state is State.CHANNELS_CLEANUP:
-        _prefer_finishable_games(self)
+    # Every games pick (GAMES_UPDATE) and every maintenance trigger ends in a
+    # CHANNELS_CLEANUP, so pruning here covers both the initial pick and the
+    # re-pick when a drop stops being completable. Order is kept as chosen by core.
+    if state is State.CHANNELS_CLEANUP and not _prefer_finishable_games(self):
+        state = State.GAMES_UPDATE
     _original_change_state(self, state)
 
 

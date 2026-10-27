@@ -59,6 +59,7 @@ def _drop(
     required: int,
     watched: int = 0,
     ends_in: timedelta | None = None,
+    starts_in: timedelta = timedelta(days=-1),
     claimed: bool = False,
 ) -> dict:
     now = datetime.now(timezone.utc)
@@ -73,7 +74,7 @@ def _drop(
                 "imageAssetURL": "",
             }
         }],
-        "startAt": _iso(now - timedelta(days=1)),
+        "startAt": _iso(now + starts_in),
         "endAt": _iso(now + (ends_in or timedelta(days=30))),
         "requiredMinutesWatched": required,
         "preconditionDrops": None,
@@ -170,6 +171,14 @@ def test_drop_ending_before_campaign_uses_drop_end():
     assert campaign.can_finish() is False
 
 
+def test_time_before_a_drop_starts_doesnt_count():
+    campaign = _campaign(
+        _drop("later", required=60, starts_in=timedelta(minutes=50)),
+        ends_in=timedelta(minutes=70),
+    )
+    assert campaign.can_finish() is False
+
+
 def test_one_finishable_drop_is_enough():
     campaign = _campaign(
         _drop("long", required=600),
@@ -248,6 +257,26 @@ def test_finishable_campaign_must_be_earnable_within_the_hour():
     client = _fake_client([now_unf.game, other.game], [now_unf, later, other])
     twitch.Twitch.change_state(client, State.CHANNELS_CLEANUP)
     assert client.wanted_games == [now_unf.game, other.game]
+
+
+def test_games_are_repicked_when_kept_games_stop_being_finishable():
+    a, b = _unfinishable(1), _finishable(2)
+    client = _fake_client([a.game, b.game], [a, b])
+    twitch.Twitch.change_state(client, State.CHANNELS_CLEANUP)
+    assert client.wanted_games == [b.game]
+    # later, B can't finish anymore either: the dropped fallback games must come back
+    client.inventory = [a, _unfinishable(2)]
+    client._state = State.CHANNELS_FETCH
+    twitch.Twitch.change_state(client, State.CHANNELS_CLEANUP)
+    assert client._state is State.GAMES_UPDATE
+
+
+def test_games_pick_with_nothing_finishable_goes_on_to_cleanup():
+    a, b = _unfinishable(1), _unfinishable(2)
+    client = _fake_client([a.game, b.game], [a, b])
+    twitch.Twitch.change_state(client, State.CHANNELS_CLEANUP)
+    assert client._state is State.CHANNELS_CLEANUP
+    assert client.wanted_games == [a.game, b.game]
 
 
 def test_other_state_changes_leave_wanted_games_alone():
