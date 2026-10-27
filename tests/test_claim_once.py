@@ -36,11 +36,18 @@ def _twitch(responses: list[dict]):
     )
 
 
-def _drop(twitch, drop_id: str = "d1", claim_id: str = "u#c#d1", claimed: bool = False):
+def _drop(
+    twitch,
+    drop_id: str = "d1",
+    claim_id: str = "u#c#d1",
+    claimed: bool = False,
+    linked: bool = False,
+):
     now = datetime.now(timezone.utc)
     stamp = lambda dt: dt.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
     campaign = SimpleNamespace(
         _twitch=twitch,
+        linked=linked,
         ends_at=now + timedelta(days=2),
         game=SimpleNamespace(name="Some Game"),
         claimed_drops=1,
@@ -90,6 +97,15 @@ def test_failed_claim_is_retried_on_the_next_fetch():
     refetched = _drop(twitch)
     assert not refetched.is_claimed
     assert refetched.can_claim
+
+
+def test_claim_is_retried_once_the_account_gets_linked():
+    twitch = _twitch([OK])
+    asyncio.run(_drop(twitch).claim())
+
+    after_linking = _drop(twitch, linked=True)
+    assert not after_linking.is_claimed
+    assert after_linking.can_claim
 
 
 def test_other_drops_are_not_affected():
