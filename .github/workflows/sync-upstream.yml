@@ -1,0 +1,111 @@
+name: Sync fireph webui
+
+# Daily: merge fireph's webui into allen-build and push it. A merge conflict
+# (or any other failure) turns the run red and opens an issue in this fork.
+# The inputs exist so the merge can be tested on a scratch branch.
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: "Repo to merge from"
+        default: "fireph/TwitchDropsMiner"
+      source_branch:
+        description: "Branch to merge from"
+        default: "webui"
+      target_branch:
+        description: "Branch to merge into"
+        default: "allen-build"
+
+permissions:
+  contents: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  SOURCE_REPO: ${{inputs.source_repo || 'fireph/TwitchDropsMiner'}}
+  SOURCE_BRANCH: ${{inputs.source_branch || 'webui'}}
+  TARGET_BRANCH: ${{inputs.target_branch || 'allen-build'}}
+  GH_TOKEN: ${{github.token}}
+
+jobs:
+  sync:
+    name: Merge fireph webui into allen-build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v7
+        with:
+          ref: ${{env.TARGET_BRANCH}}
+          fetch-depth: 0
+
+      - name: Fetch source branch
+        run: |
+          git remote add source "https://github.com/${SOURCE_REPO}.git"
+          git fetch source "${SOURCE_BRANCH}"
+
+      - name: Merge
+        id: merge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          behind=$(git rev-list --count "HEAD..source/${SOURCE_BRANCH}")
+          echo "behind=${behind}" >> "${GITHUB_OUTPUT}"
+          if [ "${behind}" -eq 0 ]; then
+            echo "Already up to date with ${SOURCE_REPO}@${SOURCE_BRANCH}." | tee -a "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          git merge --no-commit --no-ff "source/${SOURCE_BRANCH}" || true
+          # The workflow token may not change workflow files, so keep ours exactly as they are.
+          git rm -rq --cached --ignore-unmatch .github/workflows
+          git clean -fdq .github/workflows
+          git checkout HEAD -- .github/workflows
+          if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
+            {
+              echo "Merge conflict between ${TARGET_BRANCH} and ${SOURCE_REPO}@${SOURCE_BRANCH} in:"
+              git diff --name-only --diff-filter=U | sed 's/^/- /'
+            } | tee conflict.txt
+            git merge --abort
+            echo "FAIL_REASON=conflict" >> "${GITHUB_ENV}"
+            exit 1
+          fi
+          git commit -m "Merge ${SOURCE_REPO}@${SOURCE_BRANCH} into ${TARGET_BRANCH}"
+          echo "Merged ${behind} new commit(s) from ${SOURCE_REPO}@${SOURCE_BRANCH}." | tee -a "${GITHUB_STEP_SUMMARY}"
+
+      - name: Push
+        if: steps.merge.outputs.behind != '0'
+        run: git push origin "HEAD:${TARGET_BRANCH}"
+
+      # Pushes made with the workflow token do not start other workflows, so ask for the build directly.
+      - name: Start a rebuild
+        if: steps.merge.outputs.behind != '0' && env.TARGET_BRANCH == 'allen-build'
+        run: gh workflow run allen-build.yml --ref allen-build
+
+      - name: Report failure as a GitHub issue
+        if: failure()
+        run: |
+          title="Daily sync from ${SOURCE_REPO} failed"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            echo "The sync of \`${SOURCE_REPO}@${SOURCE_BRANCH}\` into \`${TARGET_BRANCH}\` failed."
+            echo
+            echo "Run: ${run_url}"
+            if [ "${FAIL_REASON:-}" = "conflict" ] && [ -f conflict.txt ]; then
+              echo
+              cat conflict.txt
+              echo
+              echo "Merge by hand: \`git checkout ${TARGET_BRANCH} && git merge ${SOURCE_REPO}@${SOURCE_BRANCH}\`, fix the files, push."
+            fi
+          } > body.md
+          existing=$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open --search "\"${title}\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --repo "${GITHUB_REPOSITORY}" --body-file body.md
+          else
+            gh issue create --repo "${GITHUB_REPOSITORY}" --title "${title}" --body-file body.md
+          fi
