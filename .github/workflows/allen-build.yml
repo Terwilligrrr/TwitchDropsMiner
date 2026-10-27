@@ -4,6 +4,7 @@ name: Allen build
 # it as the "allen-build" release of this fork. The Docker image repo
 # (Terwilligrrr/docker-twitch-drops-miner) watches that release and builds
 # ghcr.io/terwilligrrr/twitch-drops-miner from it.
+# Any failure turns the run red and opens an issue in this fork (job "report-failure").
 
 on:
   push:
@@ -146,3 +147,39 @@ jobs:
             --title "allen-build" \
             --notes-file notes.md \
             --prerelease
+
+  report-failure:
+    name: Open an issue if something failed
+    runs-on: ubuntu-latest
+    needs:
+      - validate
+      - test
+      - build
+      - release
+    if: failure()
+    permissions:
+      issues: write
+      actions: read
+    steps:
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{github.token}}
+        run: |
+          title="Miner release build failed"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            echo "The \`allen-build\` build or release failed, so the Docker image will not get this change."
+            echo
+            echo "Run: ${run_url}"
+            echo
+            echo "Failed:"
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs" \
+              --jq '.jobs[] | select(.conclusion == "failure") | "- " + .name + ": " + ([.steps[] | select(.conclusion == "failure") | .name] | join(", "))' \
+              || echo "(could not list the failed jobs; see the run)"
+          } > body.md
+          existing=$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open --search "\"${title}\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --repo "${GITHUB_REPOSITORY}" --body-file body.md
+          else
+            gh issue create --repo "${GITHUB_REPOSITORY}" --title "${title}" --body-file body.md
+          fi

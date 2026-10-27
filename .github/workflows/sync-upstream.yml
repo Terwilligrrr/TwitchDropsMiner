@@ -3,6 +3,11 @@ name: Sync fireph webui
 # Daily: merge fireph's webui into allen-build and push it. A merge conflict
 # (or any other failure) turns the run red and opens an issue in this fork.
 # The inputs exist so the merge can be tested on a scratch branch.
+#
+# Stays alive on its own: GitHub turns scheduled workflows off after 60 days without
+# repository activity, so every run re-enables this workflow through the API. The second
+# job also watches the image build in Terwilligrrr/docker-twitch-drops-miner and opens an
+# issue here if no build run has succeeded for 12 hours (a stopped schedule fails silently).
 
 on:
   schedule:
@@ -87,6 +92,12 @@ jobs:
         if: steps.merge.outputs.behind != '0' && env.TARGET_BRANCH == 'allen-build'
         run: gh workflow run allen-build.yml --ref refs/heads/allen-build
 
+      # Keeps GitHub from switching the schedule off (see the note at the top). Runs even after
+      # a failed sync; if this call itself fails the run goes red and opens the issue below.
+      - name: Keep this schedule alive
+        if: always()
+        run: gh api --method PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/sync-upstream.yml/enable"
+
       - name: Report failure as a GitHub issue
         if: failure()
         run: |
@@ -102,6 +113,50 @@ jobs:
               echo
               echo "Merge by hand: \`git checkout ${TARGET_BRANCH} && git merge ${SOURCE_REPO}@${SOURCE_BRANCH}\`, fix the files, push."
             fi
+          } > body.md
+          existing=$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open --search "\"${title}\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --repo "${GITHUB_REPOSITORY}" --body-file body.md
+          else
+            gh issue create --repo "${GITHUB_REPOSITORY}" --title "${title}" --body-file body.md
+          fi
+
+  watch-image:
+    name: Is the Docker image build still running?
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_REPO: Terwilligrrr/docker-twitch-drops-miner
+      MAX_AGE_HOURS: "12"
+    steps:
+      - name: Check the last successful image build run
+        run: |
+          last=$(gh run list --repo "${IMAGE_REPO}" --workflow ghcr-image.yml --status success --limit 1 --json createdAt --jq '.[0].createdAt // empty')
+          if [ -z "${last}" ]; then
+            echo "FAIL_REASON=no-run" >> "${GITHUB_ENV}"
+            echo "::error::No successful run of ghcr-image.yml found in ${IMAGE_REPO}"
+            exit 1
+          fi
+          age_hours=$(( ($(date +%s) - $(date -d "${last}" +%s)) / 3600 ))
+          echo "Last successful image build run: ${last} (${age_hours} h ago)" | tee -a "${GITHUB_STEP_SUMMARY}"
+          if [ "${age_hours}" -ge "${MAX_AGE_HOURS}" ]; then
+            echo "FAIL_REASON=stale" >> "${GITHUB_ENV}"
+            echo "::error::The image build has not succeeded since ${last}"
+            exit 1
+          fi
+
+      - name: Report failure as a GitHub issue
+        if: failure()
+        run: |
+          title="Docker image build has stopped"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            echo "The scheduled image build in \`${IMAGE_REPO}\` has had no successful run for ${MAX_AGE_HOURS} hours (reason: \`${FAIL_REASON:-check-error}\`)."
+            echo "The image \`ghcr.io/terwilligrrr/twitch-drops-miner\` may no longer update."
+            echo
+            echo "Image runs: https://github.com/${IMAGE_REPO}/actions/workflows/ghcr-image.yml"
+            echo "This check: ${run_url}"
+            echo
+            echo "Look at whether that workflow was disabled (Actions tab, \"Enable workflow\") or keeps failing."
           } > body.md
           existing=$(gh issue list --repo "${GITHUB_REPOSITORY}" --state open --search "\"${title}\" in:title" --json number --jq '.[0].number // empty')
           if [ -n "${existing}" ]; then
