@@ -13,6 +13,7 @@ import settings as _settings
 import inventory as _inventory
 
 import webui.translations  # noqa
+import webui.patches_finishable  # noqa
 
 UNLINKED_OFF = "off"
 UNLINKED_PRIORITY = "priority"
