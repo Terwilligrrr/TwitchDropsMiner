@@ -15,6 +15,7 @@ import inventory as _inventory
 import webui.translations  # noqa
 import webui.patches_finishable  # noqa
 import webui.patches_claims  # noqa
+import webui.patches_gql_retry  # noqa
 
 UNLINKED_OFF = "off"
 UNLINKED_PRIORITY = "priority"
