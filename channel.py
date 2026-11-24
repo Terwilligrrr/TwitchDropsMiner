@@ -111,7 +111,7 @@ class Stream:
         return self
 
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, self.__class__):
+        if isinstance(other, Stream):
             return self.broadcast_id == other.broadcast_id
         return NotImplemented
 
@@ -216,7 +216,7 @@ class Channel:
         return f"Channel({name}, {self.id})"
 
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, self.__class__):
+        if isinstance(other, Channel):
             return self.id == other.id
         return NotImplemented
 

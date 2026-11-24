@@ -438,7 +438,7 @@ class Game:
         return f"Game({self.id}, {self.name})"
 
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, self.__class__):
+        if isinstance(other, Game):
             return self.id == other.id
         return NotImplemented
 
