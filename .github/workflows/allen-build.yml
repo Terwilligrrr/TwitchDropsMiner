@@ -88,7 +88,7 @@ jobs:
 
       - name: Build nicegui binary
         run: |
-          docker build -f Dockerfile.alpine --build-arg ARCH=x86_64 --build-arg UI_BACKEND=nicegui -t twitch-drops-miner-nicegui:x86_64 .
+          docker build -f Dockerfile.build --build-arg LIBC=musl --build-arg ARCH=x86_64 --build-arg UI_BACKEND=nicegui -t twitch-drops-miner-nicegui:x86_64 .
 
       - name: Extract build artifact
         run: |
